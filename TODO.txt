@@ -1,0 +1,5 @@
+TODO:
+- easter egg for hidden page
+MAYBE:
+- change output between HDMI & 1/8" jack
+- research power switch?

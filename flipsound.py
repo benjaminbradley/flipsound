@@ -19,11 +19,13 @@ import RPi.GPIO as GPIO
 
 
 # CONSTANTS & GLOBAL VARIABLES
+PRODUCTION_MODE = False	# PROD/DEV mode
 NUMBUTTONS = 10
 LCD_WIDTH=16
 LCD_HEIGHT=2
 MISC_PAGENAME = 'miscellaneous'
 SYSTEM_SOUND_DIR_NAME = 'system'
+HIDDEN_SOUND_DIR_NAME = 'sexy sounds'
 
 # output: LCD config
 lcd_rs_pin=3
@@ -42,6 +44,7 @@ LCD_ENABLED = True
 DEBUGLOG = '/home/pi/flipsound/debug.log'
 MENU_START = MENU_REBOOT = 0
 MENU_SHUTDOWN = 1
+MENU_DEBUG = 2
 
 
 
@@ -117,8 +120,8 @@ def get_page_display(page_name):
 
 
 def get_sound_display(sound_name):
-	# remove the .wav from the end
-	if(sound_name.lower().endswith('.wav')):
+	# remove the extension from the end
+	if(sound_name.lower().endswith('.wav') or sound_name.lower().endswith('.ogg')):
 		sound_name = sound_name[0:-4]
 	# if there's a hash mark, remove it and everything after it
 	m = re.match('(.*?)#.*', sound_name)
@@ -133,15 +136,24 @@ def get_sound_display(sound_name):
 	if m:
 		return m.group(2)[:(LCD_WIDTH-3)]
 	return sound_name[:(LCD_WIDTH-3)]	# just show the first 13 characters of the last sound that was played
-	
+
+
+def change_to_hidden_page():
+	page_name = HIDDEN_SOUND_DIR_NAME
+	page_num = 'HID'
+	load_page_sounds(page_name, page_num)
 
 def change_to_page(sound_page_index):
-	global sound_names
 	page_name = sound_page_names[sound_page_index]
+	page_num = str(sound_page_index+1)
+	load_page_sounds(page_name, page_num)
+	
+def load_page_sounds(page_name, page_num):
+	global sound_names
 	page_display = get_page_display(page_name)
 	#debugmsg("changing to page #"+sound_page_index+": "+page_name)
 	textout_clearscreen()
-	textout_message("Page"+str(sound_page_index+1)+":" + page_display+"\n")
+	textout_message("Page"+page_num+":" + page_display+"\n")
 	sound_names = []
 	for soundname in sound_pages[page_name]:
 		sound_names.append(page_name+'/'+soundname)
@@ -149,7 +161,12 @@ def change_to_page(sound_page_index):
 	#print "sound_names changed to:"
 	#import pprint
 	#pprint.pprint(sound_names)
-	textout_message(str(len(sound_names))+" sounds")
+	sound_names = sorted(sound_names)
+	num_sounds = len(sound_names)
+	if PRODUCTION_MODE:
+		if(num_sounds > 8):
+			num_sounds = 8
+	textout_message(str(num_sounds)+" sounds")
 # end change_to_page()
 
 	
@@ -161,11 +178,13 @@ def play_sound(index):
 		# get name for corresponding sound
 		sound_name = sound_names[index]
 		debugmsg("playing sound: "+sound_name)
+		if sound_name.startswith(MISC_PAGENAME+'/'):
+			sound_name = sound_name[len(MISC_PAGENAME)+1:]
 		sound_channels[index].play(sound_data[sound_name])
 		sound_display = get_sound_display(sound_name)
 		textout_go_home(0,1)	# updating the second line only
 		textout_message("#"+str(index+1)+":"+sound_display)	# just show the first 13 characters of the last sound that was played
-	
+		
 
 def drawmenu():
 	global menu_page
@@ -173,41 +192,14 @@ def drawmenu():
 		menuitem = "reBOOT"
 	elif menu_page == MENU_SHUTDOWN:
 		menuitem = "shutDOWN"
+	elif menu_page == MENU_DEBUG:
+		menuitem = "deBUG"
 	textout_clearscreen()
 	textout_message("mENU/onfIg mODE\n")
 	textout_message("<nEXT|"+menuitem+">")
 
 #########################################################################################################
 #########################################################################################################
-
-
-# scan sound directories for sound files
-sound_pages = {}
-for filename in os.listdir(sound_dir):
-	filepath = os.path.join(sound_dir, filename)
-	if(os.path.isdir(filepath)):
-		page_name = filename
-		if not filename == SYSTEM_SOUND_DIR_NAME:
-			page_sounds = os.listdir(filepath)
-			sound_pages[page_name] = page_sounds
-			#print "display name for "+page_name+" is: "+get_page_display(page_name)
-			#debugmsg("for page "+page_name+" the sounds are:")
-			#for sound_filename in page_sounds:
-			#	print "display name for sound "+sound_filename+" is "+get_sound_display(sound_filename)
-	else:
-		if(not filename.startswith('.')):	# skip ., .., and all other .hiddenfiles
-			#add to miscellaneous sound pages
-			if not sound_pages.has_key(MISC_PAGENAME):	# initialize the misc page if needed
-				sound_pages[MISC_PAGENAME] = []
-			sound_pages[MISC_PAGENAME].append(filename)
-			#TODO: if number of sounds > sounds per page, then create a new "misc" page
-			#debugmsg("misc sound: "+filepath)
-
-
-sound_names = []	# array of sound names for the current page
-sound_data = {}		# actual sound data for the sounds, indexed by filename
-sound_page_names = sorted(list(sound_pages.keys()))
-sound_page_index = 0
 
 
 button_pins_index = {}
@@ -227,6 +219,47 @@ sleep(3)
 debugmsg("FlipSound starting up...")
 
 
+# scan sound directories for sound files
+sound_pages = {}
+for filename in os.listdir(sound_dir):
+	filepath = os.path.join(sound_dir, filename)
+	if(os.path.isdir(filepath)):
+		page_name = filename
+		if not filename == SYSTEM_SOUND_DIR_NAME:
+			page_sounds = []
+			# verify correct format
+			for sound_name in os.listdir(filepath):
+				if(sound_name.lower().endswith('.wav') or sound_name.lower().endswith('.ogg')):
+					page_sounds.append(sound_name)
+				else:
+					debugmsg("ERROR: File is not a wav or ogg: "+sound_name)
+			# assign sounds to page
+			sound_pages[page_name] = page_sounds
+			#print "display name for "+page_name+" is: "+get_page_display(page_name)
+			#debugmsg("for page "+page_name+" the sounds are:")
+			#for sound_filename in page_sounds:
+			#	print "display name for sound "+sound_filename+" is "+get_sound_display(sound_filename)
+	else:
+		if(not filename.startswith('.')):	# skip ., .., and all other .hiddenfiles
+			#add to miscellaneous sound pages
+			if not sound_pages.has_key(MISC_PAGENAME):	# initialize the misc page if needed
+				sound_pages[MISC_PAGENAME] = []
+			sound_pages[MISC_PAGENAME].append(filename)
+			#TODO: if number of sounds > sounds per page, then create a new "misc" page
+			#debugmsg("misc sound: "+filepath)
+
+
+sound_names = []	# array of sound names for the current page
+sound_data = {}		# actual sound data for the sounds, indexed by filename
+sound_page_names = sorted(list(sound_pages.keys()))
+hidden_page_index = sound_page_names.index(HIDDEN_SOUND_DIR_NAME)
+if hidden_page_index:
+	del sound_page_names[hidden_page_index]
+	debugmsg("Deleted hidden page named '"+HIDDEN_SOUND_DIR_NAME+"'")
+sound_page_index = 0
+
+
+
 # configure hardware in/out pins
 GPIO.setmode(GPIO.BCM)
 
@@ -243,26 +276,38 @@ if LCD_ENABLED:
 GPIO.setwarnings(True)
 
 # initialize the sound mixer
+#pygame.mixer.init(frequency=22050, size=-16, channels=2, buffer=4096)
 pygame.mixer.init(48000, -16, 1, 1024)
 
 # load the sound data and initialize the sound channels
 all_sound_names = []
 for pagename in sound_pages:
 	for soundname in sound_pages[pagename]:
-		all_sound_names.append(pagename+'/'+soundname)
+		if pagename == MISC_PAGENAME:
+			filename = soundname
+		else:
+			filename = pagename+'/'+soundname
+		all_sound_names.append(filename)
 debugmsg("Sound directory is "+sound_dir+", loading data for "+str(len(all_sound_names))+" sound files...")
 for name in all_sound_names:
 	filename = sound_dir + '/' + name
 	debugmsg("loading sound from "+filename)
-	sound_data[name] = pygame.mixer.Sound(filename)
-	if not sound_data[name]:
+	temp_sound_data = pygame.mixer.Sound(filename)
+	if not temp_sound_data:
 		debugmsg("ERROR: Couldn't load sound from file at "+filename)
+	elif temp_sound_data.get_length() < 0.001:
+		debugmsg("ERROR: Sound load incomplete for "+filename)
+	else:
+		sound_data[name] = temp_sound_data
+		debugmsg("loaded sound from "+filename+", "+str(sound_data[name].get_length())+" seconds")
+		# confirmed: this number is too low for sounds that don't play - i.e. <0.01 seconds
+		
 	#sndA = pygame.mixer.Sound("buzzer.wav")
 
 pygame.mixer.set_num_channels(num_sound_channels)
 debugmsg("Initializing "+str(num_sound_channels)+" sound channels...")
 sound_channels = []
-for i in range(0, num_sound_channels-1):
+for i in range(0, num_sound_channels):
 	debugmsg("Initializing sound channel "+str(i+1))
 	sound_channels.append(pygame.mixer.Channel(i))
 	#soundChannelB = pygame.mixer.Channel(2)
@@ -295,18 +340,24 @@ while going:
 				if(buttonid in PLAYSOUND_BUTTONIDS):
 					if not menu_mode:
 						play_sound(buttonid)
+					elif menu_page == MENU_DEBUG:
+						textout_go_home(0,1)	# updating the second line only
+						textout_message("<nEXT|button "+str(buttonid)+">")
 				elif(buttonid == BUTTONID_PREVPAGE):
 					if menu_mode:
 						if menu_page == MENU_REBOOT:
 							menu_page = MENU_SHUTDOWN
 							drawmenu()
 						elif menu_page == MENU_SHUTDOWN:
+							menu_page = MENU_DEBUG
+							drawmenu()
+						elif menu_page == MENU_DEBUG:
 							menu_page = MENU_START
 							menu_mode = False
 							change_to_page(sound_page_index)
 					else:
 						# go to prev page, or circle to last if needed
-						sound_page_index = (sound_page_index+len(sound_pages)-1) % len(sound_pages)
+						sound_page_index = (sound_page_index+len(sound_page_names)-1) % len(sound_page_names)
 						debugmsg("Changing to page "+str(sound_page_index))
 						change_to_page(sound_page_index)
 				elif(buttonid == BUTTONID_NEXTPAGE):
@@ -315,16 +366,20 @@ while going:
 							textout_clearscreen()
 							textout_message("Restarting..")
 							debugmsg("REBOOT selected in CONFIG/MENU: Issuing reboot command...")
-							os.system("reboot")
-							exit()
+							os.system('reboot')
+							exit()	# this should be unreachable code
 						elif menu_page == MENU_SHUTDOWN:
 							textout_clearscreen()
 							textout_message("Powering off..")
 							debugmsg("SHUTDOWN selected in CONFIG/MENU: Issuing shutdown command...")
 							os.system("shutdown now")
+						elif menu_page == MENU_DEBUG:
+							textout_go_home(0,1)	# updating the second line only
+							textout_message("press a button")
+							
 					else:
 						# go to next page, or back to 1 if needed
-						sound_page_index = (sound_page_index+1) % len(sound_pages)
+						sound_page_index = (sound_page_index+1) % len(sound_page_names)
 						debugmsg("Changing to page "+str(sound_page_index))
 						change_to_page(sound_page_index)
 				
@@ -337,6 +392,12 @@ while going:
 			debugmsg("detected 2-button hold (PG-LEFT + PG-RIGHT), activating menu mode...")
 			menu_mode = True
 			drawmenu()
+		elif (GPIO.input(button_pins[0]) == True and GPIO.input(button_pins[1]) == True \
+			and GPIO.input(button_pins[2]) == True and GPIO.input(button_pins[3]) == True \
+			and GPIO.input(button_pins[4]) == True and GPIO.input(button_pins[5]) == True \
+			and GPIO.input(button_pins[6]) == True and GPIO.input(button_pins[7]) == True):
+			#TODO: load sounds from HIDDEN_SOUND_DIR_NAME
+			change_to_hidden_page()
 
 		sleep(.01)
 	except KeyboardInterrupt:

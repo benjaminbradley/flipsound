@@ -13,7 +13,7 @@ import operator
 import os
 import signal
 import pygame.mixer
-from Adafruit_CharLCD import Adafruit_CharLCD
+from Adafruit_CharLCD import Adafruit_CharLCD	# available from https://github.com/adafruit/Adafruit-Raspberry-Pi-Python-Code/blob/master/Adafruit_CharLCD/Adafruit_CharLCD.py
 import RPi.GPIO as GPIO
 
 

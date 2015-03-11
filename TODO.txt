@@ -1,5 +1,6 @@
 TODO:
-- easter egg for hidden page
+- background noise that plays in a loop for each page
+- maybe one button cycles between background noises?
 MAYBE:
 - change output between HDMI & 1/8" jack
 - research power switch?
